@@ -1,0 +1,156 @@
+version: '2.3'
+
+# ip map:
+#   ipfsA     --> 172.168.10.10
+#   node0     --> 172.168.10.50
+#   node1     --> 172.168.10.51
+#   node2     --> 172.168.10.52
+#   node3     --> 172.168.10.53
+#
+
+##################################################
+services:
+  ipfsA:
+      image: tony92151/ipfs-alpine
+      container_name: ipfsA
+      ports:
+        - 4001:4001
+        - 5001:5001
+      environment:
+        HOSTIP: 172.168.10.10
+        IPFS_PATH: /root/ipfs
+        
+      volumes: # default path : /data/ipfs/swarm.key
+        # - ./ipfskey:/data/ipfs/ 
+        - ./ipfs:/root
+        # - ipfscon:/ipfscon
+      entrypoint: /bin/bash
+      command: /root/ipfsentrypoint.sh
+      networks:
+        localnet:
+          ipv4_address: 172.168.10.10
+  node0:
+      image: tony92151/py-abci
+      container_name: node0
+      runtime: nvidia
+      user: root
+      ports:
+        - "26656-26657:26656-26657"
+      environment:
+        - MODE=core
+        - ID=0
+        - DEVICES=GPU
+      volumes: 
+        - tenconfig:/tenconfig:z
+        - ./script:/root:z
+        - ./data:/mountdata
+      entrypoint: /bin/bash
+      command: /root/entrypoint-py.sh
+      networks:
+        localnet:
+          ipv4_address: 172.168.10.50
+  node1:
+      image: tony92151/py-abci
+      container_name: node1
+      runtime: nvidia
+      user: root
+      environment:
+        - MODE=core
+        - ID=1
+        - DEVICES=GPU
+      volumes:
+        - tenconfig:/tenconfig:z
+        - ./script:/root:z
+        - ./data:/mountdata
+      entrypoint: /bin/bash
+      command: /root/entrypoint-py.sh
+      networks:
+        localnet:
+          ipv4_address: 172.168.10.51
+
+  node2:
+      image: tony92151/py-abci
+      container_name: node2
+      runtime: nvidia
+      user: root
+      environment:
+        - MODE=core
+        - ID=2
+        - DEVICES=GPU
+      volumes:
+        - tenconfig:/tenconfig:z
+        - ./script:/root:z
+        - ./data:/mountdata
+      entrypoint: /bin/bash
+      command: /root/entrypoint-py.sh
+      networks:
+        localnet:
+          ipv4_address: 172.168.10.52
+
+  node3:
+      image: tony92151/py-abci
+      container_name: node3
+      runtime: nvidia
+      user: root
+      environment:
+        - MODE=core
+        - ID=3
+        - DEVICES=GPU
+      volumes:
+        - tenconfig:/tenconfig:z
+        - ./script:/root:z
+        - ./data:/mountdata
+      entrypoint: /bin/bash
+      command: /root/entrypoint-py.sh
+      networks:
+        localnet:
+          ipv4_address: 172.168.10.53
+
+##################################################
+  nodes:
+      image: tony92151/py-abci
+      runtime: nvidia
+      user: root
+      environment:
+        - MODE=nodes
+        - DEVICES=GPU
+        - DOCKER_HOST=unix:///run/docker.sock
+      volumes:
+        - tenconfig:/tenconfig:z
+        - ./script:/root:z
+        - ./data:/mountdata
+        - /run/docker.sock:/run/docker.sock:ro
+      entrypoint: /bin/bash
+      command: /root/entrypoint-py.sh
+      networks:
+        localnet:
+  ##################################################
+  tshark:
+      # image: alpine:3.13
+      container_name: tshark
+      build:
+        context: ./network
+        dockerfile: Dockerfile
+      volumes:
+        # - ./ipfskey:/data/ipfs/ 
+        - ./network:/root/network
+        - ./script/py-app:/root:z
+        # - ipfscon:/ipfscon
+      entrypoint: /bin/sh
+      command: /root/network/networkentrypoint.sh
+      network_mode: "host"
+
+volumes:
+    tenconfig:
+
+
+networks:
+  localnet:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.168.10.0/24
+        #gateway: 172.168.10.1
+    driver_opts:
+      com.docker.network.bridge.name: bcfl
