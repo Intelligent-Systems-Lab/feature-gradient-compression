@@ -60,8 +60,8 @@ if __name__ == '__main__':
     paths = [os.path.join(path, i) for i in cifar_path]
     data, data_index = unpickle(paths)
 
-    os.mkdir(os.path.join(path, "iid"))
-    os.mkdir(os.path.join(path, "niid"))
+    os.makedirs(os.path.join(path, "iid"), exist_ok=True)
+    os.makedirs(os.path.join(path, "niid"), exist_ok=True)
     # for i in range(number_of_client):
     #     os.makedirs(os.path.join(path, "niid", "cifar10_train_{}".format(i), "cifar-10-batches-py"))
     #     os.makedirs(os.path.join(path, "iid", "cifar10_train_{}".format(i), "cifar-10-batches-py"))   

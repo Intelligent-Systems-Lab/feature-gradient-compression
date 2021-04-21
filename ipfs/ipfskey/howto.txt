@@ -1,0 +1,3 @@
+# https://github.com/ipfs/go-ipfs/blob/master/docs/experimental-features.md#private-networks
+go get github.com/Kubuxu/go-ipfs-swarm-key-gen/ipfs-swarm-key-gen
+ipfs-swarm-key-gen > ~/.ipfs/swarm.key

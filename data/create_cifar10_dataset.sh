@@ -6,4 +6,4 @@ tar zxvf cifar-10-python.tar.gz
 rm cifar-10-python.tar.gz
 
 
-# rm -r cifar10
+python3 cifar10.py --data ./cifar10 --n 20

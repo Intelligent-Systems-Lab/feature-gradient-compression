@@ -1,0 +1,114 @@
+version: '3'
+
+services:
+  ipfsA:
+    image: tony92151/ipfs-alpine
+    container_name: ipfsA
+    ports:
+      - 4001:4001
+      - 5001:5001
+    environment:
+      #LIBP2P_FORCE_PNET: "true"
+      HOSTIP: 172.168.10.10
+      IPFS_PATH: /root/ipfs
+      
+    volumes: # default path : /data/ipfs/swarm.key
+      # - ./ipfskey:/data/ipfs/ 
+      - ../ipfs:/root
+      - ipfscon:/ipfscon
+    entrypoint: /bin/bash
+    command: /root/ipfsentrypoint.sh
+    networks:
+      localnet:
+        ipv4_address: 172.168.10.10
+
+##################################################
+  ipfsB:
+    image: tony92151/ipfs-alpine
+    container_name: ipfsB
+    ports:
+      - 6001:4001
+      - 7001:5001
+    environment:
+      #LIBP2P_FORCE_PNET: "true"
+      HOSTIP: 172.168.10.11
+      IPFS_PATH: /root/ipfs
+      
+    volumes: # default path : /data/ipfs/swarm.key
+      # - ./ipfskey:/data/ipfs/ 
+      - ../ipfs:/root
+      - ipfscon:/ipfscon
+    entrypoint: /bin/bash
+    command: /root/ipfsentrypoint.sh
+    networks:
+      localnet:
+        ipv4_address: 172.168.10.11
+
+##################################################
+  # clusterA:
+  #   image: ipfs/ipfs-cluster:latest
+  #   container_name: clusterA
+  #   ports:
+  #     - 7094:9094
+  #   environment:
+  #     - MODE=nodeapp
+  #     - ID=1
+  #   volumes:
+  #     - ./ipfs:/root
+  #     - ipfscon:/ipfscon
+  #   entrypoint: /bin/bash
+  #   command: /root/ipfsentrypoint.sh
+  #   networks:
+  #     localnet:
+  #       ipv4_address: 172.168.10.12
+
+##################################################
+  # node2:
+  #   image: ipfs/go-ipfs
+  #   container_name: node2
+  #   ports:
+  #     - "26663-26664:26656-26657"
+  #   environment:
+  #     - MODE=nodeapp
+  #     - ID=2
+  #   volumes:
+  #     - ./script:/root
+  #     - ./nodes:/tendermint
+  #   entrypoint: /bin/bash
+  #   command: /root/entrypoint.sh
+  #   networks:
+  #     localnet:
+  #       ipv4_address: 172.168.10.4
+
+##################################################
+  # node3:
+  #   image: ipfs/go-ipfs
+  #   container_name: node3
+  #   ports:
+  #     - "26665-26666:26656-26657"
+  #   environment:
+  #     - MODE=nodeapp
+  #     - ID=3
+  #   volumes:
+  #     - ./script:/root
+  #     - ./nodes:/tendermint
+  #   entrypoint: /bin/bash
+  #   command: /root/entrypoint.sh
+  #   networks:
+  #     localnet:
+  #       ipv4_address: 172.168.10.5
+
+##################################################
+
+volumes:
+    ipfscon:
+
+networks:
+  localnet:
+    #driver: bridge
+    ipam:
+      #driver: default
+      config:
+      -
+        subnet: 172.168.10.0/16
+        #gateway: 172.168.10.1
