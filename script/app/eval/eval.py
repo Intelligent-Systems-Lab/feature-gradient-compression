@@ -7,7 +7,7 @@ from torch import optim
 import pandas as pd
 import sys, copy
 
-sys.path.append('/root/py-app')
+sys.path.append('/root/app')
 
 import time
 import numpy as np
@@ -143,7 +143,7 @@ if __name__ == "__main__":
 
     #client = ipfshttpclient.connect(con.eval.get_ipfsaddr())
 
-    reuslt = "/root/py-app/{}_round_result_0.json".format(con.trainer.get_max_iteration())
+    reuslt = "/root/app/{}_round_result_0.json".format(con.trainer.get_max_iteration())
     file_ = open(reuslt, 'r')
     context = json.load(file_)
     file_.close()
@@ -177,7 +177,7 @@ if __name__ == "__main__":
         print("Round: {}".format(context["data"][i]["round"]))
         # time.sleep(0.2)
         base_tmp = Model()
-        base_tmp.load_state_dict(torch.load("/root/py-app/save_models/{}".format(context["data"][i]["base_result"])))
+        base_tmp.load_state_dict(torch.load("/root/app/save_models/{}".format(context["data"][i]["base_result"])))
         # base_tmp = base642fullmodel(client.cat(context["data"][i]["base_result"]).decode())
         b_acc, loss = acc_plot([base_tmp], test_dataloader, con)[0]
         context["data"][i]["base_acc"] = round(b_acc, 6)
@@ -190,7 +190,7 @@ if __name__ == "__main__":
             for j in range(len(context["data"][i]["incoming_gradient"])):
                 # time.sleep(0.2)
                 g_tmp = Model()
-                g_tmp.load_state_dict(torch.load("/root/py-app/save_models/round_{}_cid_{}.pt".format(context["data"][i]["round"], context["data"][i]["incoming_gradient"][j]["cid"])))
+                g_tmp.load_state_dict(torch.load("/root/app/save_models/round_{}_cid_{}.pt".format(context["data"][i]["round"], context["data"][i]["incoming_gradient"][j]["cid"])))
                 bases_tmp.append(copy.deepcopy(g_tmp))
                 if con.trainer.get_dataset_path().split("/")[-1] == "niid":
                     dataloaders_tmp.append(single_test_dataloader[int(context["data"][i]["incoming_gradient"][j]["cid"])])
@@ -202,7 +202,7 @@ if __name__ == "__main__":
             for j in range(len(context["data"][i]["incoming_gradient"])):
                 context["data"][i]["incoming_gradient"][j]["single_acc"] = round(single_accs[j], 6)
     
-    with open('/root/py-app/acc_report.json', 'w') as f:
+    with open('/root/app/acc_report.json', 'w') as f:
         json.dump(context, f, indent=4)
 
     # bcfl_result = acc_plot(bcfl_models, test_dataloader, con.trainer.get_device()).

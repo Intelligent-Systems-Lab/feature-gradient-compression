@@ -3,110 +3,39 @@ import time, json, requests
 import sys, os, base64
 import argparse
 import subprocess
-sys.path.append('script/py-app')
-import ipfshttpclient
+
+sys.path.append('script/app')
+from script.app.options import Configer
+from script.app.models.models_select import *
+from script.app.utils import *
+from script.app.db import ipfs
+from script.app.trainer import trainer
+from script.app.aggregator import aggregator
 import glob
-from options import Configer
 from tqdm import tqdm
+from shutil import copyfile
+from script.app.state_controller import State_controller
+
 
 #############################################
-def run_ipfs_container():
-    proc = subprocess.Popen('docker-compose -f ./docker-compose-pygpu.yml up ipfsA', shell=True, stdout=subprocess.PIPE)
+def run_ipfs(logto=None, env=None):
+    if logto is None:
+        log = subprocess.PIPE
+    else:
+        log = open(logto, 'a')
+    proc = subprocess.Popen('bash ./ipfs/ipfsentrypoint.sh', shell=True, stdout=log, env=env)
     return proc
 
-def run_network_container():
-    proc = subprocess.Popen('docker-compose -f ./docker-compose-pygpu.yml up tshark', shell=True, stdout=subprocess.PIPE)
+
+def run_network_capture(logto=None, env=None):
+    if logto is None:
+        log = subprocess.PIPE
+    else:
+        log = open(logto, 'a')
+    proc = subprocess.Popen('bash ./network/networkentrypoint.sh', shell=True, stdout=log, stderr=log, env=env)
     return proc
 
-def run_vlaidatror_nodes_container(logto=subprocess.PIPE):
-    proc = subprocess.Popen('docker-compose -f ./docker-compose-pygpu.yml up node0 node1 node2 node3', shell=True, stdout=logto)
-    return proc
 
-def run_nodes_container(nodes):
-    proc = subprocess.Popen('docker-compose -f ./docker-compose-pygpu.yml scale nodes={}'.format(nodes), shell=True, stdout=subprocess.PIPE)
-    return proc
-
-def run_eval_container():
-    # proc = subprocess.Popen('docker run --gpus all --rm -it -v {}:/root/:z -v {}:/mountdata/ --network isl-bcfl_localnet tony92151/py-abci python3 -u /root/py-app/eval/eval.py -config /root/py-app/config/config_run.ini'.format(os.path.abspath("./script"), os.path.abspath("./data")), shell=True, stdout=subprocess.PIPE)
-    proc = subprocess.Popen('docker run --gpus all --rm -it -v {}:/root/:z -v {}:/mountdata/ tony92151/py-abci python3 -u /root/py-app/eval/eval.py -config /root/py-app/config/config_run.ini'.format(os.path.abspath("./script"), os.path.abspath("./data")), shell=True, stdout=subprocess.PIPE)
-    return proc
-#############################################
-def send_create_task_TX(max_iteration=10, file="config.ini"):
-    proc = subprocess.Popen('docker run --rm -it -v {}:/root/:z tony92151/py-abci python3 /root/py-app/utils.py -config /root/py-app/config/{} > FIRSTMOD.txt'.format(os.path.abspath("./script"), file), shell=True)
-    proc.wait()
-
-    time.sleep(1)
-    client = ipfshttpclient.connect("/ip4/0.0.0.0/tcp/5001/http")
-
-    ipfs_model = client.add_str(open(os.path.abspath("./FIRSTMOD.txt"), "r").read())
-    print(ipfs_model) 
-
-    param = json.loads('{"type": "create_task","max_iteration": "","aggtimeout": 20,"weight":""}')
-    param["max_iteration"] = max_iteration
-    param["weight"] = ipfs_model
-
-    b64payload = base64.b64encode(json.dumps(param).encode('UTF-8')).decode('UTF-8')
-    print(b64payload)
-    
-    url = "http://localhost:26657"
-    payload = json.loads('{"jsonrpc":"2.0", "method": "broadcast_tx_sync", "params": "", "id": 1}')
-    payload["params"] = [b64payload]
-
-    # Adding empty header as parameters are being sent in payload
-    headers = {"Content-Type": "application/json"}
-    r = requests.post(url, data=json.dumps(payload), headers=headers)
-    print(json.dumps(json.loads(r.content), indent=4, sort_keys=True))
-    return proc
-
-def set_config_file(f):
-    proc = subprocess.Popen("cp {} {}/config_run.ini".format(f, os.path.dirname(f)), shell=True)
-    return proc
-
-def stop_network_container():
-    proc = subprocess.Popen('docker-compose -f ./docker-compose-py.yml stop tshark', shell=True, stdout=subprocess.PIPE)
-    return proc
-
-def terminate_all_container():
-    proc = subprocess.Popen('docker-compose -f ./docker-compose-pygpu.yml down -v', shell=True, stdout=subprocess.PIPE)
-    return proc
-#############################################
-def roll_output(proc, file=None): 
-    # https://www.endpoint.com/blog/2015/01/28/getting-realtime-output-using-python
-    while True:
-        output = proc.stdout.readline()
-        if proc.poll() is not None:
-            break
-        if output:
-            if file is None:
-                print(output.decode('utf-8').splitlines())
-            else:
-                f = open(file,"a")
-                f.write(output+"\n")
-                f.close() 
-            
-    rc = proc.poll()
-    print("End output, PID : {}".format(proc.pid))
-#############################################
-def run_network_analyzer():
-    proc = subprocess.Popen('python3 network/network_analysiser.py $(pwd)/network/network_tmp $(pwd)/network/network_tmp/pcap.jpg $(pwd)/network/network_tmp/pcap2.jpg', shell=True, stdout=subprocess.PIPE)
-    # python network/network_analysiser.py $(pwd)/network/network_tmp $(pwd)/network/network_tmp/pcap.jpg $(pwd)/network/network_tmp/pcap2.jpg
-    # proc = subprocess.Popen(, shell=True, stdout=subprocess.PIPE)
-    return proc
-
-def move_result_to_save_folder(con, path):
-    _ = subprocess.Popen('mv ./script/py-app/{} {}'.format(con.eval.get_output().split("/")[-1], path), shell=True, stdout=subprocess.PIPE)
-    _ = subprocess.Popen('mv ./script/py-app/config/config_run.ini {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    _ = subprocess.Popen('mv ./script/py-app/*.json {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    _ = subprocess.Popen('mv ./network/network_tmp {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    _ = subprocess.Popen('mv ./ndoelog.log {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    _ = subprocess.Popen('mv ./script/py-app/save_models {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    # _ = subprocess.Popen('mv ./acc_report.json {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    # _ = subprocess.Popen('mv ./network/network_tmp {}'.format(path), shell=True, stdout=subprocess.PIPE)
-    _ = subprocess.Popen('rm -rf ./script/py-app/save', shell=True, stdout=subprocess.PIPE)
-    
-
-    # move 
-    # return proc
 #############################################
 
 if __name__ == "__main__":
@@ -120,107 +49,98 @@ if __name__ == "__main__":
         exit()
 
     con_path = os.path.abspath(args.config)
-    outpath_path = os.path.abspath(args.output)
+    out_path = os.path.abspath(args.output)
 
-    if not os.path.exists(outpath_path):
-        os.makedirs(outpath_path)
+    os.makedirs(out_path, exist_ok=True)
 
-    path_n = os.path.abspath("./network/network_tmp/")
-    if not os.path.exists(path_n):
-        os.mkdir(path_n)
-
-    print("Read config: {}".format(con_path))
-    con = Configer(con_path)
+    train_tmp = os.path.abspath("./train_tmp")
+    os.makedirs(train_tmp, exist_ok=True)
+    procs = []
 
     # set up config file
-    p_config = set_config_file(con_path)
+    print("Read config: {}".format(con_path))
+    copyfile(con_path, os.path.join(os.path.dirname(con_path), "config_run.ini"))
+    con_path = os.path.join(os.path.dirname(con_path), "config_run.ini")
+    config = Configer(con_path)
 
-    # # launch ipfs container
-    p_ipfs = run_ipfs_container()
-    print("PID : ipfs : {}".format(p_ipfs.pid))
-    time.sleep(1)
+    # launch ipfs
+    print("Init ipfs.")
+    ipfs_log = os.path.join(train_tmp, "ipfs.log")
+    p_ipfs = run_ipfs(ipfs_log)
+    procs.append(p_ipfs)
+    # p_ipfs.wait()
 
-    # # launch network capture container
-    p_net = run_network_container()
-    print("PID : network : {}".format(p_net.pid))
-    time.sleep(1)
+    # init
+    states = []
+    dbHandler = ipfs(addr=config.eval.get_ipfsaddr())
+    Model = get_model(config.trainer.get_dataset())
+    state_controller = State_controller()
+    trainers = []
+    for i in range(config.bcfl.get_nodes()):
+        path = os.path.join(os.path.abspath("./"), "data", config.trainer.get_dataset_path(), "index.json")
+        trainers.append(trainer(config=config,
+                                dataloader=get_cifar_dataloader(root=path, client=i, batch=10),
+                                dbHandler=dbHandler))
 
-    log = open(os.path.join(os.path.abspath("."),"ndoelog.log"), 'a')
-    p_vnodes = run_vlaidatror_nodes_container(logto=log)
-    print("PID : vlaidatror_nodes : {}".format(p_vnodes.pid))
-    time.sleep(5)
+    aggregator = aggregator(config=config,
+                            dbHandler=dbHandler)
 
-    # # launch scalble-nodes container
-    if not con.bcfl.get_scale_nodes() == 0:
-        print("Scale node : {}".format(con.bcfl.get_scale_nodes()))
-        p_snodes = run_nodes_container(con.bcfl.get_scale_nodes())
-        print("PID : scale_nodes : {}".format(p_snodes.pid))
-        time.sleep(1)
-
-    # make sure all node are sycn done
-    time.sleep(30)
-
-    #send create-task TX to strat trining.
-    send_create_task_TX(con.trainer.get_max_iteration(), con_path.split("/")[-1])
-
-    # check whether training process is finish
-    path = os.path.abspath("./script/py-app/save/")
-    if not os.path.exists(path):
-        os.mkdir(path)
-
-    path2 = os.path.abspath("./script/py-app/save_models/")
-    if not os.path.exists(path2):
-        os.mkdir(path2)
+    # set env
+    env = {
+        **os.environ,
+        "workspace": str(train_tmp),
+    }
 
 
-    check = 0
-    for i in tqdm(range(con.trainer.get_max_iteration())):
-        time.sleep(0.5)
-        while True:
-            l = len(glob.glob(path+"/*")) 
-            if l>check:
-                check+=1
-                break
-            else:
-                time.sleep(5)
-
-    # close run_network_container
-    # _ = stop_network_container()
-    time.sleep(1)
-    open(path+"/capture_down", 'a').close()
-    # capture_down
-    time.sleep(30)
-
-    while not os.path.isfile(path + "/Done"):
-        time.sleep(5)
-        print("wait for saving...")
-
-    while not os.path.isfile(path + "/convert_down"):
-        time.sleep(5)
-        print("wait for convert...")
-
-    time.sleep(30)
-
-    p_t = terminate_all_container()
-    p_t.wait()
+    # launch network capture
+    print("Init network.")
+    # network_log = os.path.join(train_tmp, "network.log")
+    # open(network_log, 'a').close()
+    # p_network = run_network_capture(logto=network_log, env=env)
+    # # p_network.wait()
+    # procs.append(p_network)
 
     time.sleep(10)
 
-    # launch eval container
-    p_eval = run_eval_container()
-    roll_output(p_eval)
-    p_eval.wait()
-    print("Eval done.\n")
+    ####################################################################################
+    # init first base_model
+    first_model = dbHandler.add(object_serialize(Model()))
+    time.sleep(1)
 
-    # run network analyzer
-    p_n = run_network_analyzer()
-    p_n.wait()
+    state_controller.add_new_state(round_=0,
+                                   agg_gradient="",
+                                   base_result=object_deserialize(dbHandler.cat(first_model)))
 
-    # terminate all container
-    # time.sleep(10)
-    # p_t = terminate_all_container()
-    # p_t.wait()
+    for d in range(config.bcfl.get_nodes() - 1):
+        time.sleep(1)
+        _ = dbHandler.cat(first_model)  # download
 
-    # move all result to save_path
-    p_save = move_result_to_save_folder(con, outpath_path)
+    for i in range(config.trainer.get_max_iteration()):
+        for j in range(config.bcfl.get_nodes()):
+            print("Round :{}, CID :{}".format(i, j))
+            update_addr = trainers[j].train_run(round_=i,
+                                                base_model=state_controller.get_last_base_model())
+            state_controller.add_update(round_=i,
+                                        cid=j,
+                                        gradient=update_addr)
+
+        agg_addr = aggregator.aggergate_run(round_=i,
+                                            gradients=state_controller.get_incoming_gradient())
+
+        for d in range(config.bcfl.get_nodes() - 1):
+            time.sleep(1)
+            _ = dbHandler.cat(agg_addr)  # download
+
+        new_base_model = trainers[0].opt_step_base_model(round_=i,
+                                                         base_model=state_controller.get_last_base_model(),
+                                                         base_gradient=agg_addr)
+
+        state_controller.add_new_state(round_=i + 1,
+                                       agg_gradient=agg_addr,
+                                       base_result=new_base_model)
+
+    # make sure close all process
+    for p in p_network:
+        p.wait()
+
     print("Done.\n")

@@ -9,25 +9,26 @@ import pandas as pd
 import random
 import numpy as np
 import sys, os, json
+
 sys.setrecursionlimit(1000000)
 
 # from models.resnet import resnet18
-from dgc.optimizer import DGCSGD
-from fgc.optimizer import FGCSGD
+from script.app.dgc.optimizer import DGCSGD
+from script.app.fgc.optimizer import FGCSGD
+
 
 # def get_optimizer(type_, model, lr, compress_ratio=None, fusing_ratio=None):
 def get_optimizer(type_):
     if type_ == 'sgd':
-        return torch.optim.SGD#(model.parameters(), lr=lr, momentum=0.5)
+        return torch.optim.SGD  # (model.parameters(), lr=lr, momentum=0.5)
     elif type_ == 'adam':
-        return torch.optim.Adam#(model.parameters(), lr=lr, weight_decay=1e-4)
+        return torch.optim.Adam  # (model.parameters(), lr=lr, weight_decay=1e-4)
     elif type_ == 'rms':
-        return torch.optim.RMSprop#(model.parameters(), lr=lr)
+        return torch.optim.RMSprop  # (model.parameters(), lr=lr)
     elif type_ == 'DGCSGD':
-        return DGCSGD#(model.parameters(), lr=lr, compress_ratio=compress_ratio)
+        return DGCSGD  # (model.parameters(), lr=lr, compress_ratio=compress_ratio)
     elif type_ == 'FGCSGD':
-        return FGCSGD#(model.parameters(), lr=lr, compress_ratio=compress_ratio, fusing_ratio=fusing_ratio)
-
+        return FGCSGD  # (model.parameters(), lr=lr, compress_ratio=compress_ratio, fusing_ratio=fusing_ratio)
 
 
 def get_criterion(type_, device):
@@ -41,6 +42,7 @@ def get_criterion(type_, device):
     else:
         return c
 
+
 def get_model(type_):
     if type_ == "mnist":
         Model = Model_mnist
@@ -48,9 +50,9 @@ def get_model(type_):
         Model = Model_mnist_fedavg
     elif type_ == "femnist":
         Model = Model_femnist
-    
+    elif type_ == "cifar10":
+        Model = ResNet18_cifar
     return Model
-
 
 
 class MNISTDataset(Dataset):
@@ -105,13 +107,13 @@ def getdataloader(dset='./mnist_test.csv', batch=10):
 
     trainloader = torch.utils.data.DataLoader(train_set, batch_size=batch, shuffle=True, num_workers=2)
     return trainloader
-        
+
 
 def get_cifar_dataloader(root='./index.json', client=0, batch=10):
     print("Dataset at : {}".format(root))
     with open(root, 'rb') as fo:
         d = json.load(fo)
-    
+
     d = d[str(client)]
     transform = transforms.Compose([transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -122,35 +124,35 @@ def get_cifar_dataloader(root='./index.json', client=0, batch=10):
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch,
                                               sampler=SubsetRandomSampler(d),
                                               num_workers=2)
-                                              
 
     return trainloader
-
 
 
 class Model_mnist(nn.Module):
     def __init__(self):
         super(Model_mnist, self).__init__()
         self.cnn = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=5),
-                                     nn.ReLU(inplace=True),
-                                     nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5),
-                                     nn.ReLU(inplace=True),
-                                     nn.MaxPool2d(kernel_size=2),
-                                     nn.Dropout(0.25),
-                                     nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
-                                     nn.ReLU(inplace=True),
-                                     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3),
-                                     nn.ReLU(inplace=True),
-                                     nn.MaxPool2d(kernel_size=2, stride=2),
-                                     nn.Dropout(0.25))
+                                 nn.ReLU(inplace=True),
+                                 nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5),
+                                 nn.ReLU(inplace=True),
+                                 nn.MaxPool2d(kernel_size=2),
+                                 nn.Dropout(0.25),
+                                 nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+                                 nn.ReLU(inplace=True),
+                                 nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3),
+                                 nn.ReLU(inplace=True),
+                                 nn.MaxPool2d(kernel_size=2, stride=2),
+                                 nn.Dropout(0.25))
         self.classifier = nn.Sequential(nn.Linear(576, 256),
-                                       nn.Dropout(0.5),
-                                       nn.Linear(256, 10))
+                                        nn.Dropout(0.5),
+                                        nn.Linear(256, 10))
+
     def forward(self, x):
         x = self.cnn(x)
-        x = x.view(x.size(0), -1) # flatten layer
+        x = x.view(x.size(0), -1)  # flatten layer
         x = self.classifier(x)
         return x
+
 
 class Model_mnist_fedavg(nn.Module):
     def __init__(self):
@@ -164,11 +166,12 @@ class Model_mnist_fedavg(nn.Module):
     def forward(self, x):
         x = F.relu(F.max_pool2d(self.conv1(x), 2))
         x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, x.shape[1]*x.shape[2]*x.shape[3])
+        x = x.view(-1, x.shape[1] * x.shape[2] * x.shape[3])
         x = F.relu(self.fc1(x))
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
+
 
 # def Model_femnist():
 #     model = vgg13()
@@ -181,30 +184,32 @@ class Model_femnist(nn.Module):
     def __init__(self):
         super(Model_femnist, self).__init__()
         self.cnn = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=5),
-                                     nn.ReLU(inplace=True),
-                                     nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5),
-                                     nn.ReLU(inplace=True),
-                                     nn.MaxPool2d(kernel_size=2),
-                                     nn.Dropout(0.25),
-                                     nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
-                                     nn.ReLU(inplace=True),
-                                     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3),
-                                     nn.ReLU(inplace=True),
-                                     nn.MaxPool2d(kernel_size=2, stride=2),
-                                     nn.Dropout(0.25))
+                                 nn.ReLU(inplace=True),
+                                 nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5),
+                                 nn.ReLU(inplace=True),
+                                 nn.MaxPool2d(kernel_size=2),
+                                 nn.Dropout(0.25),
+                                 nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+                                 nn.ReLU(inplace=True),
+                                 nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3),
+                                 nn.ReLU(inplace=True),
+                                 nn.MaxPool2d(kernel_size=2, stride=2),
+                                 nn.Dropout(0.25))
         self.classifier = nn.Sequential(nn.Linear(576, 256),
-                                       nn.Dropout(0.5),
-                                       nn.Linear(256, 62))
+                                        nn.Dropout(0.5),
+                                        nn.Linear(256, 62))
+
     def forward(self, x):
         x = self.cnn(x)
-        x = x.view(x.size(0), -1) # flatten layer
+        x = x.view(x.size(0), -1)  # flatten layer
         x = self.classifier(x)
         return x
+
 
 # class Model_cifar(torchvision.models.resnet18)):
 #     def __init__(self, ):
 #         super(Model_cifar, self).__init__()
-        
+
 class ResNet18_cifar(torchvision.models.resnet.ResNet):
     def __init__(self):
-        super().__init__(block=torchvision.models.resnet.BasicBlock, layers= [2, 2, 2, 2], num_classes=10)
+        super().__init__(block=torchvision.models.resnet.BasicBlock, layers=[2, 2, 2, 2], num_classes=10)

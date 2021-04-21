@@ -1,0 +1,4 @@
+multiprocess
+ipfshttpclient==0.7.0
+pandas
+flask

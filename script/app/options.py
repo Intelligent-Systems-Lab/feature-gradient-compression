@@ -22,8 +22,8 @@ class config_bcfl:
     def get_save_path(self):
         return self.config["save_path"]
     
-    def get_scale_nodes(self) -> int:
-        return int(self.config["scale_nodes"])
+    def get_nodes(self) -> int:
+        return int(self.config["nodes"])
 
 
 class config_trainer:

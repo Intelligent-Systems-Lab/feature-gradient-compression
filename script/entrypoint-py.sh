@@ -85,7 +85,7 @@ else
     # NODEID=$(python -c 'import random; print(random.randint(1,100000))')
     sed -i "s#persistent_peers = \"\"#$PP#"  $TMHOME/config/config.toml
     # tendermint node --proxy_app kvstore
-    # python /root/py-app/bcfl.py -dataset $DATAPATH 
+    # python /root/app/bcfl.py -dataset $DATAPATH
     # export ID=0
 
     # Get container name by query from docker socket
