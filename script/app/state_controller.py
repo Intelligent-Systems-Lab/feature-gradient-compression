@@ -3,7 +3,7 @@ import json, os, copy, time
 
 
 class state:
-    def __init__(self, round_, agg_gradient, base_result):
+    def __init__(self, round_=-1, agg_gradient="", base_result=""):
         self.round = round_  # this round
         self.agg_gradient = agg_gradient  # last round's incoming-models that aggregate to new base-model
         self.base_result = base_result  # base-model that aggregate from last round's incoming-models

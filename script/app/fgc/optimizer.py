@@ -235,7 +235,7 @@ class FGCMemory:
         for j,m,v in zip(com_gradient, m_n, v_n):
             new_mem, ctx = j
             shape, mask, numel = ctx
-            indices = torch.BoolTensor(mask).nonzero().view(-1)
+            indices, = torch.where(torch.BoolTensor(mask))
             m_ = m.view(-1).index_fill_(0, indices, 0)
             v_ = v.view(-1).index_fill_(0, indices, 0)
             m_e.append(copy.deepcopy(m_.view(shape)))

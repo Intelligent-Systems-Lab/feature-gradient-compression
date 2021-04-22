@@ -31,7 +31,7 @@ class aggregator:
         self.config = config
         self.dbHandler = dbHandler
 
-    def aggergate_run(self, round_, gradients):
+    def aggergate_run(self, gradients):
         compressor = DGCCompressor()
 
         gradient_list = []

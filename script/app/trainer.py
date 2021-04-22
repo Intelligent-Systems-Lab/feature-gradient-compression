@@ -1,3 +1,6 @@
+import glob
+from shutil import copyfile
+
 import torch
 import torch.nn as nn
 from torchvision import transforms
@@ -18,109 +21,9 @@ from utils import *
 from models.models_select import *
 import random
 from dgc.warmup import warmup
+from db import ipfs
 
-
-def train(logger, dbHandler, config, bmodel, _round, sender, dataloader, lr, mome=None):
-    local_ep = config.trainer.get_local_ep()
-    device = config.trainer.get_device()
-    mc = config.dgc.get_momentum_correction()
-    cr = config.dgc.get_compress_ratio()
-    fr = 0.8
-    # lr = config.trainer.get_lr()
-    # lr = lr
-
-    if config.trainer.get_dataset() == "mnist":
-        Model = Model_mnist
-    elif config.trainer.get_dataset() == "mnist_fedavg":
-        Model = Model_mnist_fedavg
-    elif config.trainer.get_dataset() == "femnist":
-        Model = Model_femnist
-        # Model = resnet18
-    elif config.trainer.get_dataset() == "cifar10":
-        Model = ResNet18_cifar
-    # model_ = Model()
-
-    model = Model()
-    if type(bmodel) == str:
-        try:
-            model = base642fullmodel(dbHandler.cat(bmodel))
-            # logger.info("ipfs success : {}".format(model[:20]))
-        except TimeoutError:
-            logger.info("ipfs fail")
-    else:
-        model = copy.deepcopy(bmodel)
-
-    if device == "GPU":
-        model.cuda()
-
-    optimizer = get_optimizer(config.trainer.get_optimizer(), model=model, lr=lr, compress_ratio=cr, fusing_ratio=fr)
-    loss_function = get_criterion(config.trainer.get_lossfun(), device=device)
-
-    if config.trainer.get_optimizer() == "DGCSGD":
-        optimizer.memory.clean()
-    elif config.trainer.get_optimizer() == "FGCSGD":
-        optimizer.memory.clean()
-
-    model.train()
-    # logger.info("Train model dataloader")
-    local_g = []
-
-    eploss = []
-    for i in range(local_ep):
-        if config.trainer.get_optimizer() == "DGCSGD":
-            optimizer.memory.clean()
-        elif config.trainer.get_optimizer() == "FGCSGD":
-            optimizer.memory.clean()
-
-        losses = []
-        for data, target in dataloader:
-            if device == "GPU":
-                data = data.cuda()
-                target = target.cuda()
-
-            optimizer.zero_grad()
-            # data = data.view(data.size(0),-1)
-
-            output = model(data.float())
-
-            loss = loss_function(output, target)
-
-            loss.backward()
-
-            optimizer.gradient_collect()
-            optimizer.step()
-
-            losses.append(loss.item())
-        losses = sum(losses) / len(losses)
-        eploss.append(losses)
-        # optimizer.compress(compress=False)
-        # local_g.append(optimizer.decompress(optimizer.get_compressed_gradient()))
-    eploss = sum(eploss) / len(eploss)
-    add_value_file(path='/root/app/loss_{}.json'.format(os.getenv("ID")), value=eploss)
-
-    if device == "GPU":
-        model.cpu()
-
-    # optimizer.memory.clean()
-    # for i in local_g:
-    #     optimizer.memory.mem.append(i)
-    if config.trainer.get_optimizer() == "FGCSGD" and _round > config.trainer.get_base_step():
-        optimizer.compress(global_momentum=mome, compress=True, momentum_correction=mc)
-    else:
-        optimizer.compress(compress=True, momentum_correction=mc)
-    cg = optimizer.get_compressed_gradient()
-
-    dbres = dbHandler.add(object_serialize(cg))
-    # UpdateMsg.set_cid(os.getenv("ID"))
-
-    result = UpdateMsg()
-    result.set_cid(os.getenv("ID"))
-    result.set_round(_round)
-    result.set_weight(dbres)
-    # result.set_cid(os.getenv("ID"))
-    # time.sleep(3)
-    send_result = sender.send(result.json_serialize())
-    return send_result
+gpu_count = torch.cuda.device_count()
 
 
 def add_value_file(path, value):
@@ -140,12 +43,34 @@ def add_value_file(path, value):
     file_.close()
 
 
+def read_state(file):
+    j = None
+    with open(file, "r") as f:
+        j = json.load(f)
+    return j
+
+
+def write_state(file, round_, cid, addr):
+    s = read_state(file)
+    if str(s["data"][-1]["round"]) == str(round_):
+        new_incom = {
+            "cid": cid,
+            "gradient": addr
+        }
+        s["data"][-1]["incoming_gradient"].append(new_incom)
+
+    with open(file, "w") as f:
+        json.dump(s, f, indent=4)
+
+
 class trainer:
-    def __init__(self, config, dataloader, dbHandler):
+    def __init__(self, config, dataloader, dbHandler, dev=torch.device("cpu"), cid=-1):
         self.config = config
+        self.cid = cid
         self.dataloader = dataloader  # path to dataset
         self.dbHandler = dbHandler
-        self.devices = self.config.trainer.get_device()
+        self.device = self.config.trainer.get_device()
+        self.gpu = dev
         self.local_bs = self.config.trainer.get_local_bs()
         self.local_ep = self.config.trainer.get_local_ep()
         self.compress_ratio = self.config.dgc.get_compress_ratio()
@@ -174,39 +99,48 @@ class trainer:
             model = copy.deepcopy(base_model)
 
         opt = get_optimizer(self.config.trainer.get_optimizer())
-        optimizer = opt(model=model,
+        optimizer = opt(params=model.parameters(),
                         lr=lr,
                         compress_ratio=self.compress_ratio,
                         fusing_ratio=self.fusing_ratio)
+        if self.device == "GPU":
+            model.train().to(self.gpu)
+        else:
+            model.train()
         eploss = []
+        print("train start, {}".format(time.time()))
         for i in range(self.local_ep):
-            self.optimizer.memory.clean()
+            optimizer.memory.clean()
+            print("CID: {}, ep :{}".format(round_, i))
 
             losses = []
-            for data, target in self.dataloader:
-                if self.device == "GPU":
-                    data = data.cuda()
-                    target = target.cuda()
+            try:
+                for data, target in self.dataloader:
+                    if self.device == "GPU":
+                        data = data.to(self.gpu)
+                        target = target.to(self.gpu)
 
-                self.optimizer.zero_grad()
-                # data = data.view(data.size(0),-1)
+                    optimizer.zero_grad()
+                    # data = data.view(data.size(0),-1)
 
-                output = model(data.float())
+                    output = model(data.float())
 
-                loss = self.loss_function(output, target)
+                    loss = self.loss_function(output, target)
 
-                loss.backward()
+                    loss.backward()
 
-                optimizer.gradient_collect()
-                optimizer.step()
+                    optimizer.gradient_collect()
+                    optimizer.step()
 
-                losses.append(loss.item())
-            losses = sum(losses) / len(losses)
-            eploss.append(losses)
+                    losses.append(loss.item())
+                losses = sum(losses) / len(losses)
+                eploss.append(losses)
+            except:
+                print("data:{}, target:{}, losses:{}".format(data.shape, target.shape, len(losses)))
             # optimizer.compress(compress=False)
             # local_g.append(optimizer.decompress(optimizer.get_compressed_gradient()))
         eploss = sum(eploss) / len(eploss)
-
+        print("train done, {}".format(time.time()))
         if self.device == "GPU":
             model.cpu()
 
@@ -218,8 +152,10 @@ class trainer:
         else:
             optimizer.compress(compress=True, momentum_correction=self.momentum_correction)
         cg = optimizer.get_compressed_gradient()
-
+        time.sleep(random.randint(0, 5))
+        print("CID:{} train upload, {}".format(round_, time.time()))
         dbres = self.dbHandler.add(object_serialize(cg))
+        print("CID:{} train upload, {}".format(round_, dbres))
         return dbres
 
     def opt_step_base_model(self, round_, base_model, base_gradient):
@@ -231,7 +167,7 @@ class trainer:
 
         model.cpu().train()
         opt = get_optimizer(self.config.trainer.get_optimizer())
-        optimizer = opt(model=model,
+        optimizer = opt(params=model.parameters(),
                         lr=lr)
         # print("base_grad: {}".format(type(object_deserialize(self.dbHandler.cat(base_gradient)))))
         self.cg = optimizer.decompress(object_deserialize(self.dbHandler.cat(base_gradient)))
@@ -240,22 +176,77 @@ class trainer:
         optimizer.step()
         return copy.deepcopy(model.cpu())
 
-    def get_model_by_ipfs(self, key):
-        if self.config.trainer.get_dataset() == "mnist":
-            Model = Model_mnist
-        elif self.config.trainer.get_dataset() == "mnist_fedavg":
-            Model = Model_mnist_fedavg
-        elif self.config.trainer.get_dataset() == "femnist":
-            Model = Model_femnist
-        elif self.config.trainer.get_dataset() == "cifar10":
-            Model = ResNet18_cifar
-        # model_ = Model()
 
-        model = Model()
-        model = base642fullmodel(self.dbHandler.cat(key))
-        # txmanager.set_last_base_model(model.cpu())
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', help="path to config", type=str, default=None)
+    args = parser.parse_args()
 
-        return model
+    if args.config is None:
+        print("Please set --config & --output.")
+        exit()
 
-    # def trainRun(self, bmodel):
-    #     print("Run train")
+    con_path = os.path.abspath(args.config)
+    cid = os.getenv("cid")
+    workspace = os.path.abspath(os.getenv("workspace"))
+    print("cid : {}".format(cid))
+    print("workspace : {}".format(workspace))
+    print("GPU : {}".format(int(cid) % gpu_count))
+
+    con_path = os.path.join(os.path.dirname(con_path), "config_run.ini")
+    print("Read config: {}".format(con_path))
+    config = Configer(con_path)
+
+    dbHandler = ipfs(addr=config.eval.get_ipfsaddr())
+
+    path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "index.json")
+    # dset = os.path.join(os.path.dirname(workspace), "data")
+    # dset = os.path.join(dset, config.trainer.get_dataset_path(),
+    #                     "{}_train_{}.csv".format(config.trainer.get_dataset(), cid))
+
+    t = trainer(config=config,
+                dataloader=get_cifar_dataloader(root=path, client=cid, batch=10),
+                cid=cid,
+                #dataloader=getdataloader(dset, batch=10),
+                dbHandler=dbHandler,
+                dev=torch.device("cuda:{}".format(int(cid) % gpu_count)))
+
+    store_base_model = []
+
+    state_file = os.path.join(workspace, "state.json")
+
+    while not os.path.isfile(state_file):
+        time.sleep(3)
+        print("Wait for init... >> state.json")
+        continue
+
+    while not os.path.isfile(os.path.join(workspace, "models", "training_down")):
+        print("...")
+        time.sleep(5)
+        state = read_state(state_file)
+        # print(state)
+        if len(state["data"]) == 0:
+            continue
+
+        last_state = state["data"][-1]
+        last_incoming = state["data"][-1]["incoming_gradient"]
+
+        if cid in [i["cid"] for i in last_incoming]:
+            continue
+
+        if last_state["round"] == 0:
+            Model = get_model(config.trainer.get_dataset())
+            model = base642fullmodel(dbHandler.cat(last_state["base_result"]))
+            store_base_model.append(copy.deepcopy(model))
+        else:
+            Model = get_model(config.trainer.get_dataset())
+            new_model = t.opt_step_base_model(round_=last_state["round"] - 1,
+                                                    base_model=store_base_model[-1],
+                                                    base_gradient=last_state["agg_gradient"])
+            store_base_model.append(copy.deepcopy(new_model))
+
+        addr = t.train_run(round_=last_state["round"], base_model=store_base_model[last_state["round"]])
+        write_state(file=state_file, round_=last_state["round"], cid=cid, addr=addr)
+
+    print("Exit.")
+    exit()

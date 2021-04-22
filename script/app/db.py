@@ -1,15 +1,11 @@
 import time
 import uuid
-from abci.utils import get_logger
 from dbase.ipfs import ipfs
 
 MODE = "ipfs"
 
 if MODE == "ipfs":
     import ipfshttpclient
-
-log = get_logger()
-
 
 class db:
     def __init__(self, mode=["ipfs"]):

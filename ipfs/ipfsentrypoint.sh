@@ -1,16 +1,16 @@
 echo "Copy key..."
 
-mkdir -p /data/ipfs/
-cp /root/ipfskey/swarm.key /data/ipfs/ 
+mkdir -p ${workspace}/ipfs/
+cp ./ipfs/ipfskey/swarm.key ${workspace}/ipfs/
 
 
 echo 'Initialize IPFS ...'
 
-if [ -d "/root/ipfs/" ]; then
-    echo "Removing /root/ipfs/..."
-  rm -rf /root/.ipfs/
-  rm -rf /root/ipfs/
-fi
+# if [ -d "/root/ipfs/" ]; then
+#     echo "Removing /root/ipfs/..."
+#   rm -rf /root/.ipfs/
+#   rm -rf /root/ipfs/
+# fi
 
 ipfs init
 ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
@@ -24,21 +24,21 @@ PEERID=$(ipfs id | jq ."ID")
 PEERID="${PEERID:1}"
 PEERID="${PEERID::-1}"
 
-if [ ! -f "/ipfscon/ipfsaddr.txt" ]; then
-    mkdir /ipfscon
-    touch /ipfscon/ipfsaddr.txt
+if [ ! -f "${workspace}/ipfs/ipfscon/ipfsaddr.txt" ]; then
+    mkdir ${workspace}/ipfs/ipfscon
+    touch ${workspace}/ipfs/ipfscon/ipfsaddr.txt
 fi
 #rm /ipfscon/ipfsaddr.txt
 #touch /ipfscon/ipfsaddr.txt
 
-echo "/ip4/$HOSTIP/tcp/4001/ipfs/$PEERID" >> /ipfscon/ipfsaddr.txt
+echo "/ip4/127.0.0.1/tcp/4001/ipfs/$PEERID" >> ${workspace}/ipfs/ipfscon/ipfsaddr.txt
 
 sleep 5
 
 while read line; do 
     #echo $line 
     ipfs bootstrap add $line 
-done < /ipfscon/ipfsaddr.txt
+done < ${workspace}/ipfs/ipfscon/ipfsaddr.txt
 
 ipfs daemon
 # ipfs daemon >> /$HOSTIP.log 2>&1 &

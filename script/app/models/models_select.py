@@ -13,8 +13,8 @@ import sys, os, json
 sys.setrecursionlimit(1000000)
 
 # from models.resnet import resnet18
-from script.app.dgc.optimizer import DGCSGD
-from script.app.fgc.optimizer import FGCSGD
+from dgc.optimizer import DGCSGD
+from fgc.optimizer import FGCSGD
 
 
 # def get_optimizer(type_, model, lr, compress_ratio=None, fusing_ratio=None):
@@ -52,6 +52,7 @@ def get_model(type_):
         Model = Model_femnist
     elif type_ == "cifar10":
         Model = ResNet18_cifar
+        # Model = Net
     return Model
 
 
@@ -118,7 +119,7 @@ def get_cifar_dataloader(root='./index.json', client=0, batch=10):
     transform = transforms.Compose([transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    trainset = torchvision.datasets.CIFAR10(root='/mountdata/cifar10', train=True,
+    trainset = torchvision.datasets.CIFAR10(root=os.path.dirname(os.path.dirname(root)), train=True,
                                             download=False, transform=transform)
 
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch,
@@ -213,3 +214,23 @@ class Model_femnist(nn.Module):
 class ResNet18_cifar(torchvision.models.resnet.ResNet):
     def __init__(self):
         super().__init__(block=torchvision.models.resnet.BasicBlock, layers=[2, 2, 2, 2], num_classes=10)
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x

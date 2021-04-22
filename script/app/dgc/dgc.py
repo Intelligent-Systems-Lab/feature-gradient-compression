@@ -17,14 +17,9 @@ class DGCCompressor(Compressor):
     def compress_by_layer(self, param):
         pass
 
-    def compress(self, mem, compress=True):
-        agg_gradient = copy.deepcopy(mem)
-        # gradient_list = copy.deepcopy(mem)
-        # agg_gradient = []
-        # for i in range(len(gradient_list[0])):
-        #     result = torch.stack([j[i] for j in gradient_list]).sum(dim=0)
-        #     #agg_gradient.append(result / len(gradient_list))
-        #     agg_gradient.append(result)
+    def compress(self, mem=None, compress=True, momentum_correction = False):
+        if mem is None:
+            mem = self.memory.add_mem(self.memory.mem)
 
         if momentum_correction:
             agg_gradient = self.memory.compensate(mem)
