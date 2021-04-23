@@ -180,7 +180,12 @@ if __name__ == "__main__":
     open(os.path.join(models_tmp, "training_down"), "w").close()
     time.sleep(10)
 
+    while not len(glob.glob(os.path.join(train_tmp, "models", "round_*.pt"))) >= config.trainer.get_max_iteration():
+        time.sleep(3)
+        print("wait for saving...")
+
     # make sure close all process
+    time.sleep(5)
     print("Kill all.")
     for p in procs:
         p.kill()

@@ -199,15 +199,18 @@ if __name__ == "__main__":
 
     dbHandler = ipfs(addr=config.eval.get_ipfsaddr())
 
-    path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "index.json")
-    # dset = os.path.join(os.path.dirname(workspace), "data")
-    # dset = os.path.join(dset, config.trainer.get_dataset_path(),
-    #                     "{}_train_{}.csv".format(config.trainer.get_dataset(), cid))
+    if config.trainer.get_dataset() == "femnist":
+        dset = os.path.join(os.path.dirname(workspace), "data")
+        dset = os.path.join(dset, config.trainer.get_dataset_path(),
+                            "{}_train_{}.csv".format(config.trainer.get_dataset(), cid))
+        dloader = getdataloader(dset, batch=10)
+    elif config.trainer.get_dataset() == "cifar10":
+        path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "index.json")
+        dloader = get_cifar_dataloader(root=path, client=cid, batch=10)
 
     t = trainer(config=config,
-                dataloader=get_cifar_dataloader(root=path, client=cid, batch=10),
+                dataloader=dloader,
                 cid=cid,
-                #dataloader=getdataloader(dset, batch=10),
                 dbHandler=dbHandler,
                 dev=torch.device("cuda:{}".format(int(cid) % gpu_count)))
 
@@ -247,6 +250,15 @@ if __name__ == "__main__":
 
         addr = t.train_run(round_=last_state["round"], base_model=store_base_model[last_state["round"]])
         write_state(file=state_file, round_=last_state["round"], cid=cid, addr=addr)
+
+    print("Saving...")
+
+    for i in range(config.trainer.get_max_iteration()):
+        if (i % config.bcfl.get_nodes()) == int(cid):
+            save_path = os.path.join(workspace, "models", "round_{}.pt".format(i))
+            torch.save(store_base_model[i].state_dict(), save_path)
+
+    open(os.path.join(workspace, "models", "save_down"), "w").close()
 
     print("Exit.")
     exit()

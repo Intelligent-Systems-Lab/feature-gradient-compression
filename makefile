@@ -18,9 +18,15 @@ install_ipfs:
 	rm go-ipfs-source.tar.gz
 	cd ${GOPATH}/src/github.com/ipfs/go-ipfs && make install
 
-test:
-	@echo "${GOPATH}"
-	cd ..
-	ls ..
+install_go:
+	@echo "Install go-1.15.2 ..."
+	@sudo echo ""
+	@sleep 1
+	wget https://dl.google.com/go/go1.15.2.linux-amd64.tar.gz
+	tar -xvf go1.15.2.linux-amd64.tar.gz -C /usr/lib/
+	rm go1.15.2.linux-amd64.tar.gz
+	@echo 'export GOROOT=/usr/lib/go' >> ~/.bashrc
+	@echo export GOPATH=${HOME}/go >> ~/.bashrc
+	@echo 'export PATH=$GOPATH/bin:$GOROOT/bin:$PATH' >> ~/.bashrc
 
 

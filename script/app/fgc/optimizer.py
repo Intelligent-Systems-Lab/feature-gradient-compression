@@ -41,7 +41,7 @@ if <receive aggregated gradient>:
 # copy from torch/optim/sgd.py
 class FGCSGD(torch.optim.Optimizer):
     def __init__(self, params, lr=None, dgc_momentum=0.9, momentum=0, dampening=0,
-                 weight_decay=0, nesterov=False, compress_ratio=0.5, fusing_ratio=0.5):
+                 weight_decay=0, nesterov=False, compress_ratio=0.5, fusing_ratio=0.5, checkpoint=False):
         if lr is None and lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -51,6 +51,7 @@ class FGCSGD(torch.optim.Optimizer):
 
         self.memory = FGCMemory(momentum = dgc_momentum)
         self.compressor = FGCCompressor(compress_ratio = compress_ratio, fusing_ratio=fusing_ratio)
+        self.checkpoint = checkpoint
 
         defaults = dict(lr=lr, momentum=momentum, dampening=dampening,
                         weight_decay=weight_decay, nesterov=nesterov)
@@ -87,11 +88,15 @@ class FGCSGD(torch.optim.Optimizer):
         # self.memory.set_compressed_mem(r)
 
         if momentum_correction:
-            self.memory_checkpoint_restore()
+            if self.checkpoint:
+                self.memory_checkpoint_restore()
+
             m = self.memory.compensate(self.memory.add_mem(avg=False))
             r = self.compressor.compress(m, gmome=global_momentum, compress=compress)
             self.memory.update(r)
-            self.memory_checkpoint_save()
+
+            if self.checkpoint:
+                self.memory_checkpoint_save()
         else:
             r = self.compressor.compress(self.memory.add_mem(avg=False), gmome=global_momentum, compress=compress)
         self.memory.set_compressed_mem(r)

@@ -89,11 +89,15 @@ class DGCSGD(torch.optim.Optimizer):
     def compress(self, compress=True, momentum_correction=False):
         # r = self.compressor.compress(self.memory.get_mem(), compress=compress)
         if momentum_correction:
-            self.memory_checkpoint_restore()
+            if self.checkpoint:
+                self.memory_checkpoint_restore()
+
             m = self.memory.compensate(self.memory.add_mem(avg=False))
             r = self.compressor.compress(m, compress=compress)
             self.memory.update(r)
-            self.memory_checkpoint_save()
+
+            if self.checkpoint:
+                self.memory_checkpoint_save()
         else:
             r = self.compressor.compress(self.memory.add_mem(avg=False), compress=compress)
         self.memory.set_compressed_mem(r)
