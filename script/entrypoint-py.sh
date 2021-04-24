@@ -8,6 +8,6 @@ echo " |___|___/____| |____/_/ \_\___/ "
 echo
 echo
 
-CONFIG=./script/app/config/config.ini
+#CONFIG=./script/app/config/config.ini
 
 python3 -u ./script/app/trainer.py --config ${CONFIG}

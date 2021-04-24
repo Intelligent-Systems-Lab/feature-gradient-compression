@@ -5,3 +5,4 @@ ipfshttpclient==0.7.0
 pandas
 flask
 tqdm
+matplotlib

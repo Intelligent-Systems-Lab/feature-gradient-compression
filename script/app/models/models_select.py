@@ -114,19 +114,23 @@ def get_cifar_dataloader(root='./index.json', client=0, batch=10):
     print("Dataset at : {}".format(root))
     with open(root, 'rb') as fo:
         d = json.load(fo)
-
-    d = d[str(client)]
     transform = transforms.Compose([transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-    trainset = torchvision.datasets.CIFAR10(root=os.path.dirname(os.path.dirname(root)), train=True,
-                                            download=False, transform=transform)
-
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch,
-                                              sampler=SubsetRandomSampler(d),
-                                              num_workers=2)
-
-    return trainloader
+    if client == -1:
+        # test dataset
+        cifar_dataset = torchvision.datasets.CIFAR10(root=os.path.dirname(os.path.dirname(root)), train=False,
+                                                     download=False, transform=transform)
+        cifar_loader = torch.utils.data.DataLoader(cifar_dataset, batch_size=batch,
+                                                   num_workers=2)
+    else:
+        # train dataset
+        d = d[str(client)]
+        cifar_dataset = torchvision.datasets.CIFAR10(root=os.path.dirname(os.path.dirname(root)), train=True,
+                                                     download=False, transform=transform)
+        cifar_loader = torch.utils.data.DataLoader(cifar_dataset, batch_size=batch,
+                                                   sampler=SubsetRandomSampler(d),
+                                                   num_workers=2)
+    return cifar_loader
 
 
 class Model_mnist(nn.Module):
@@ -213,7 +217,8 @@ class Model_femnist(nn.Module):
 
 class ResNet18_cifar(torchvision.models.resnet.ResNet):
     def __init__(self):
-        super().__init__(block=torchvision.models.resnet.BasicBlock, layers=[2, 2, 2, 2], num_classes=10)
+        super(ResNet18_cifar, self).__init__(block=torchvision.models.resnet.BasicBlock, layers=[2, 2, 2, 2],
+                                             num_classes=10)
 
 
 class Net(nn.Module):

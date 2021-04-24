@@ -1,31 +1,14 @@
-import torch
-import torch.nn as nn
-from torchvision import transforms
-from torch.utils.data import DataLoader, TensorDataset, Dataset
-from torch.utils.data.sampler import SubsetRandomSampler
-from torch import optim
-import pandas as pd
-import sys, copy
-
-sys.path.append('/root/app')
-
-import time
-import numpy as np
-from concurrent import futures
-import logging
-import grpc
 import argparse
-import base64
-import io
-import matplotlib.pyplot as plt
-from tqdm import tqdm
+import copy, sys
 import json
-# import ipfshttpclient
-
+import os
+import matplotlib.pyplot as plt
+import numpy as np
 from models.models_select import *
-from utils import *
-
 from options import Configer
+from torch import optim
+from tqdm import tqdm
+from utils import *
 
 
 def acc_plot(models, dataloder, config, device="CPU"):
@@ -73,12 +56,13 @@ def acc_plot(models, dataloder, config, device="CPU"):
     return accd
 
 
-def local_training(dataloder, con):
-    dataset = con.trainer.get_dataset()
-    device = con.trainer.get_device()
-    iter_ep = con.trainer.get_max_iteration()
-    loacl_ep = con.trainer.get_local_ep()
-    lr = con.trainer.get_lr()
+def local_training(dataloder, config):
+    dataset = config.trainer.get_dataset()
+    device = config.trainer.get_device()
+    iter_ep = config.trainer.get_max_iteration()
+    loacl_ep = config.trainer.get_local_ep()
+    lr = config.trainer.get_lr()
+
 
     if dataset == "mnist":
         Model = Model_mnist
@@ -129,57 +113,48 @@ def local_training(dataloder, con):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument('-dataset', type=str, default=None, help='Path to dataset folder')
-    # parser.add_argument('-result', type=str, default=None, help='Path to json result')
-    # parser.add_argument('-output', type=str, default=None, help='Output path')
-    # parser.add_argument('-ipfsaddr', type=str, default="/ip4/172.168.10.10/tcp/5001/", help='ipfs address')
-    parser.add_argument('-config', type=str, default=None, help='config')
+    parser.add_argument('--config', type=str, default=None, help='config')
     args = parser.parse_args()
 
     if args.config is None:
         exit("No config.ini found.")
 
-    con = Configer(args.config)
+    config = Configer(args.config)
+    workspace = os.path.abspath(os.getenv("workspace"))
 
-    #client = ipfshttpclient.connect(con.eval.get_ipfsaddr())
-
-    reuslt = "/root/app/{}_round_result_0.json".format(con.trainer.get_max_iteration())
+    reuslt = os.path.join(workspace, "state.json")
     file_ = open(reuslt, 'r')
     context = json.load(file_)
     file_.close()
 
-    if con.trainer.get_dataset() == "mnist":
-        Model = Model_mnist
-    elif con.trainer.get_dataset() == "mnist_fedavg":
-        Model = Model_mnist_fedavg
-    elif con.trainer.get_dataset() == "femnist":
-        Model = Model_femnist
-    elif config.trainer.get_dataset() == "cifar10":
-        from torchvision.models import resnet
-        Model = resnet.resnet18
-    else:
-        print("No model match")
-        exit()
+    Model = get_model(type_=config.trainer.get_dataset())
 
     print("Prepare test dataloader...")
-    test_dataloader = getdataloader("/mountdata/{}/{}_test.csv".format(con.trainer.get_dataset_path(), con.trainer.get_dataset()), 10)
-    
-    single_test_dataloader = []
-    if con.trainer.get_dataset_path().split("/")[-1] == "niid":
-        for i in range(con.bcfl.get_scale_nodes()+4):
-            dl = getdataloader("/mountdata/{}/single_test/{}_single_{}.csv".format(con.trainer.get_dataset_path(), con.trainer.get_dataset(), i), 10)
-            single_test_dataloader.append(dl)
+    if config.trainer.get_dataset() == "femnist":
+        dset = os.path.join(os.path.dirname(workspace), "data")
+        dset_ = os.path.join(dset, config.trainer.get_dataset_path(), "{}_test.csv".format(config.trainer.get_dataset()))
+        test_dataloader = getdataloader(dset_, batch=10)
+
+        # single_test_dataloader = []
+        # if con.trainer.get_dataset_path().split("/")[-1] == "niid":
+        #     for i in range(con.bcfl.get_scale_nodes() + 4):
+        #         dl = getdataloader("/mountdata/{}/single_test/{}_single_{}.csv".format(con.trainer.get_dataset_path(), con.trainer.get_dataset(), i), 10)
+        #         single_test_dataloader.append(dl)
+    elif config.trainer.get_dataset() == "cifar10":
+        path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "index.json")
+        test_dataloader = get_cifar_dataloader(root=path, client=-1, batch=10)
 
     bcfl_models = []
     print("Generate acc report...")
     lcontext = []
+    context["data"] = context["data"][:config.trainer.get_max_iteration()]
     for i in range(len(context["data"])):
         print("Round: {}".format(context["data"][i]["round"]))
         # time.sleep(0.2)
         base_tmp = Model()
-        base_tmp.load_state_dict(torch.load("/root/app/save_models/{}".format(context["data"][i]["base_result"])))
+        base_tmp.load_state_dict(torch.load(os.path.join(workspace, "models", "round_{}.pt".format(i))))
         # base_tmp = base642fullmodel(client.cat(context["data"][i]["base_result"]).decode())
-        b_acc, loss = acc_plot([base_tmp], test_dataloader, con)[0]
+        b_acc, loss = acc_plot([base_tmp], test_dataloader, config)[0]
         context["data"][i]["base_acc"] = round(b_acc, 6)
         context["data"][i]["base_loss"] = round(loss, 6)
         
@@ -192,7 +167,7 @@ if __name__ == "__main__":
                 g_tmp = Model()
                 g_tmp.load_state_dict(torch.load("/root/app/save_models/round_{}_cid_{}.pt".format(context["data"][i]["round"], context["data"][i]["incoming_gradient"][j]["cid"])))
                 bases_tmp.append(copy.deepcopy(g_tmp))
-                if con.trainer.get_dataset_path().split("/")[-1] == "niid":
+                if config.trainer.get_dataset_path().split("/")[-1] == "niid":
                     dataloaders_tmp.append(single_test_dataloader[int(context["data"][i]["incoming_gradient"][j]["cid"])])
                 else:
                     dataloaders_tmp.append(test_dataloader)
@@ -202,35 +177,17 @@ if __name__ == "__main__":
             for j in range(len(context["data"][i]["incoming_gradient"])):
                 context["data"][i]["incoming_gradient"][j]["single_acc"] = round(single_accs[j], 6)
     
-    with open('/root/app/acc_report.json', 'w') as f:
+    with open(os.path.join(workspace, "state_report.json"), 'w') as f:
         json.dump(context, f, indent=4)
 
     # bcfl_result = acc_plot(bcfl_models, test_dataloader, con.trainer.get_device()).
     bcfl_result = [i["base_acc"] for i in context["data"]]
     bcfl_loss = [i["base_loss"] for i in context["data"]]
 
-    # print("Local training...\n")
-    # print("Prepare train dataloader...")
-    # train_dataloader = getdataloader("/mountdata/{}/{}_train.csv".format(con.trainer.get_dataset_path(), con.trainer.get_dataset()), 512)
-
-    # local_models = local_training(train_dataloader, con)
-
-    # local_result = acc_plot(local_models, test_dataloader, con.trainer.get_device())
-
-    # plt.title(con.eval.get_title())
-    # plt.grid(True)
-    # plt.ylabel("Accuracy")
-    # plt.xlabel("Round")
-    miter = con.trainer.get_max_iteration()
-    # plt.plot(range(miter), bcfl_result[:miter], color='red', label='BCFL')
-    # # plt.plot(range(miter), local_result[:miter], color='green', label='LOCAL')
-    # plt.legend()
-
-    # # plt.show()
-    # plt.savefig(con.eval.get_output())
+    miter = config.trainer.get_max_iteration()
 
     fig, ax1 = plt.subplots()
-    plt.title(con.eval.get_title())
+    plt.title(config.eval.get_title())
     plt.grid(True)
     ax2 = ax1.twinx()
     ax1.plot(range(miter), bcfl_result[:miter], 'r-')
@@ -240,4 +197,4 @@ if __name__ == "__main__":
     ax1.set_ylabel('Accuracy', color='r')
     ax2.set_ylabel('loss', color='g')
 
-    plt.savefig(con.eval.get_output())
+    plt.savefig(os.path.join(workspace, config.eval.get_output()))

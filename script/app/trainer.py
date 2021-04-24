@@ -45,8 +45,14 @@ def add_value_file(path, value):
 
 def read_state(file):
     j = None
-    with open(file, "r") as f:
-        j = json.load(f)
+    while 1:
+        try:
+            with open(file, "r") as f:
+                j = json.load(f)
+            break
+        except json.decoder.JSONDecodeError:
+            time.sleep(0.5)
+            continue
     return j
 
 

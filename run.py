@@ -15,7 +15,7 @@ from script.app.aggregator import aggregator
 from script.app.thread_handler import Treading
 import glob
 from tqdm import tqdm
-from shutil import copyfile
+from shutil import copyfile, move
 from script.app.state_controller import State_controller, state
 
 gpu_count = torch.cuda.device_count()
@@ -46,6 +46,15 @@ def run_trainer(logto=None, env=None):
     else:
         log = open(logto, 'a')
     proc = subprocess.Popen('bash ./script/entrypoint-py.sh', shell=True, stdout=log, stderr=log, env=env)
+    return proc
+
+
+def run_eval(logto=None, env=None):
+    if logto is None:
+        log = subprocess.PIPE
+    else:
+        log = open(logto, 'a')
+    proc = subprocess.Popen('bash ./script/entrypoint-eval.sh', shell=True, stdout=log, stderr=log, env=env)
     return proc
 
 
@@ -89,7 +98,8 @@ if __name__ == "__main__":
     env = {
         **os.environ,
         "workspace": str(train_tmp),
-        "IPFS_PATH": str(os.path.join(train_tmp, "ipfs"))
+        "IPFS_PATH": str(os.path.join(train_tmp, "ipfs")),
+        "CONFIG": str(con_path)
     }
 
     # launch ipfs
@@ -162,7 +172,7 @@ if __name__ == "__main__":
             gradients = [i["gradient"] for i in last_data["incoming_gradient"]]
             agg_addr = aggregator.aggergate_run(gradients=gradients)
 
-            state_data = state(round_=last_data["round"]+1,
+            state_data = state(round_=last_data["round"] + 1,
                                agg_gradient=agg_addr,
                                base_result="")
             #
@@ -183,6 +193,16 @@ if __name__ == "__main__":
     while not len(glob.glob(os.path.join(train_tmp, "models", "round_*.pt"))) >= config.trainer.get_max_iteration():
         time.sleep(3)
         print("wait for saving...")
+
+    time.sleep(3)
+    print("Eval...")
+    p_eval = run_eval(os.path.join(train_tmp, "logs", "eval.log"), env=env)
+    procs.append(p_eval)
+    p_eval.wait()
+
+    # move
+    move(con_path, train_tmp)
+    move(train_tmp, out_path)
 
     # make sure close all process
     time.sleep(5)
