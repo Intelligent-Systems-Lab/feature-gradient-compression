@@ -7,7 +7,7 @@ import argparse
 
 def run_capture(File="network"):
     # proc = subprocess.Popen('tshark -i bcfl -b filesize:102400 -w {}'.format(File), shell=True, stdout=subprocess.PIPE)
-    proc = subprocess.Popen('tshark -b filesize:10240 -w {}'.format(File), shell=True, stdout=subprocess.PIPE)
+    proc = subprocess.Popen('tshark -i lo -b filesize:102400 -w {}'.format(File), shell=True, stdout=subprocess.PIPE)
     return proc
 
 

@@ -15,7 +15,7 @@ import time
 import copy
 import thread_handler as th
 from messages import AggregateMsg, UpdateMsg
-
+from torch.utils.tensorboard import SummaryWriter
 from utils import *
 # from models.eminst_model import *
 from models.models_select import *
@@ -70,13 +70,12 @@ def write_state(file, round_, cid, addr):
 
 
 class trainer:
-    def __init__(self, config, dataloader, dbHandler, dev=torch.device("cpu"), cid=-1):
+    def __init__(self, config, dataloader, dbHandler, device=torch.device("cpu"), cid=-1, board_path=None):
         self.config = config
         self.cid = cid
-        self.dataloader = dataloader  # path to dataset
+        self.dataloader = copy.deepcopy(dataloader)  # path to dataset
         self.dbHandler = dbHandler
-        self.device = self.config.trainer.get_device()
-        self.gpu = dev
+        self.device = device
         self.local_bs = self.config.trainer.get_local_bs()
         self.local_ep = self.config.trainer.get_local_ep()
         self.compress_ratio = self.config.dgc.get_compress_ratio()
@@ -93,6 +92,8 @@ class trainer:
                              end_step=self.config.trainer.get_end_step())
 
         self.loss_function = get_criterion(self.config.trainer.get_lossfun(), device=self.device)
+        if not board_path is None:
+            self.writer = SummaryWriter(board_path)
 
     def train_run(self, round_, base_model):
         lr = self.warmup.get_lr_from_step(round_)
@@ -108,11 +109,10 @@ class trainer:
         optimizer = opt(params=model.parameters(),
                         lr=lr,
                         compress_ratio=self.compress_ratio,
-                        fusing_ratio=self.fusing_ratio)
-        if self.device == "GPU":
-            model.train().to(self.gpu)
-        else:
-            model.train()
+                        fusing_ratio=self.fusing_ratio,
+                        device=self.device)
+        model.train().to(self.device)
+
         eploss = []
         print("train start, {}".format(time.time()))
         for i in range(self.local_ep):
@@ -120,35 +120,33 @@ class trainer:
             print("CID: {}, ep :{}".format(round_, i))
 
             losses = []
-            try:
-                for data, target in self.dataloader:
-                    if self.device == "GPU":
-                        data = data.to(self.gpu)
-                        target = target.to(self.gpu)
+            for data, target in self.dataloader:
+                data = data.to(self.device)
+                target = target.to(self.device)
 
-                    optimizer.zero_grad()
-                    # data = data.view(data.size(0),-1)
+                optimizer.zero_grad()
+                # data = data.view(data.size(0),-1)
 
-                    output = model(data.float())
+                output = model(data.float())
 
-                    loss = self.loss_function(output, target)
+                loss = self.loss_function(output, target)
+                #print(loss.item())
+                losses.append(loss.item())
 
-                    loss.backward()
+                loss.backward()
 
-                    optimizer.gradient_collect()
-                    optimizer.step()
+                optimizer.gradient_collect()
+                optimizer.step()
 
-                    losses.append(loss.item())
-                losses = sum(losses) / len(losses)
-                eploss.append(losses)
-            except:
-                print("data:{}, target:{}, losses:{}".format(data.shape, target.shape, len(losses)))
+            losses = sum(losses) / len(losses)
+            eploss.append(losses)
             # optimizer.compress(compress=False)
             # local_g.append(optimizer.decompress(optimizer.get_compressed_gradient()))
         eploss = sum(eploss) / len(eploss)
+        self.writer.add_scalar("loss of {}".format(cid), eploss, global_step=round_, walltime=None)
         print("train done, {}".format(time.time()))
-        if self.device == "GPU":
-            model.cpu()
+        # if self.device == "GPU":
+        #     model.cpu()
 
         # optimizer.memory.clean()
         # for i in local_g:
@@ -171,10 +169,11 @@ class trainer:
 
         lr = self.warmup.get_lr_from_step(round_)
 
-        model.cpu().train()
+        model.to(self.device).train()
         opt = get_optimizer(self.config.trainer.get_optimizer())
         optimizer = opt(params=model.parameters(),
-                        lr=lr)
+                        lr=lr,
+                        device=self.device)
         # print("base_grad: {}".format(type(object_deserialize(self.dbHandler.cat(base_gradient)))))
         self.cg = optimizer.decompress(object_deserialize(self.dbHandler.cat(base_gradient)))
         # print("cg: {}".format(type(cg)))
@@ -211,14 +210,16 @@ if __name__ == "__main__":
                             "{}_train_{}.csv".format(config.trainer.get_dataset(), cid))
         dloader = getdataloader(dset, batch=10)
     elif config.trainer.get_dataset() == "cifar10":
-        path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "index.json")
-        dloader = get_cifar_dataloader(root=path, client=cid, batch=10)
+        path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(),
+                            "cifar10_{}.pkl".format(cid))
+        dloader = get_cifar_dataloader(root=path, batch=10)
 
     t = trainer(config=config,
                 dataloader=dloader,
                 cid=cid,
                 dbHandler=dbHandler,
-                dev=torch.device("cuda:{}".format(int(cid) % gpu_count)))
+                device=torch.device("cuda:{}".format(int(cid) % gpu_count)),
+                board_path=os.path.join(workspace, "tfboard"))
 
     store_base_model = []
 
@@ -229,7 +230,8 @@ if __name__ == "__main__":
         print("Wait for init... >> state.json")
         continue
 
-    while not os.path.isfile(os.path.join(workspace, "models", "training_down")):
+    while not (os.path.isfile(os.path.join(workspace, "models", "training_down")) and
+               len(store_base_model) >= config.trainer.get_max_iteration()):
         print("...")
         time.sleep(5)
         state = read_state(state_file)
@@ -250,9 +252,12 @@ if __name__ == "__main__":
         else:
             Model = get_model(config.trainer.get_dataset())
             new_model = t.opt_step_base_model(round_=last_state["round"] - 1,
-                                                    base_model=store_base_model[-1],
-                                                    base_gradient=last_state["agg_gradient"])
+                                              base_model=store_base_model[-1],
+                                              base_gradient=last_state["agg_gradient"])
             store_base_model.append(copy.deepcopy(new_model))
+
+        if len(state["data"]) >= config.trainer.get_max_iteration():
+            continue
 
         addr = t.train_run(round_=last_state["round"], base_model=store_base_model[last_state["round"]])
         write_state(file=state_file, round_=last_state["round"], cid=cid, addr=addr)

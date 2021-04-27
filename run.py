@@ -4,6 +4,8 @@ import time, json, requests
 import sys, os, base64, copy
 import argparse
 import subprocess
+import signal
+import torch
 
 sys.path.append('script/app')
 from script.app.options import Configer
@@ -19,6 +21,18 @@ from shutil import copyfile, move
 from script.app.state_controller import State_controller, state
 
 gpu_count = torch.cuda.device_count()
+from getpass import getpass
+password = getpass("Please enter your password: ")
+
+def handler(sig, frame, ):
+    global procs
+    for p in procs:
+        p.kill()
+    print('Kill all.')
+    exit()
+
+
+signal.signal(signal.SIGINT, handler)
 
 
 #############################################
@@ -36,7 +50,9 @@ def run_network_capture(logto=None, env=None):
         log = subprocess.PIPE
     else:
         log = open(logto, 'a')
-    proc = subprocess.Popen('bash ./network/networkentrypoint.sh', shell=True, stdout=log, stderr=log, env=env)
+    proc = subprocess.Popen('sudo workspace={} bash ./network/networkentrypoint.sh'.format(env["workspace"]), shell=True, stdout=log, stderr=log, stdin=subprocess.PIPE, env=env)
+    proc.stdin.write(password.encode())
+    proc.stdin.flush()
     return proc
 
 
@@ -129,15 +145,18 @@ if __name__ == "__main__":
 
     print("Init aggregator.")
     aggregator = aggregator(config=config,
-                            dbHandler=dbHandler)
+                            dbHandler=dbHandler,
+                            device=torch.device("cuda:0"))
 
     # launch network capture
     print("Init network.")
-    # network_log = os.path.join(train_tmp, "network.log")
-    # open(network_log, 'a').close()
-    # p_network = run_network_capture(logto=network_log, env=env)
+    network_log = os.path.join(train_tmp, "network.log")
+    open(network_log, 'a').close()
+    env_ = copy.deepcopy(env)
+    env_["PASS"] = str(password)
+    p_network = run_network_capture(logto=network_log, env=env_)
     # # p_network.wait()
-    # procs.append(p_network)
+    procs.append(p_network)
 
     time.sleep(3)
 
@@ -163,15 +182,14 @@ if __name__ == "__main__":
     last_data = st["data"][-1]
     n_round = len(st["data"])
 
-    while not n_round > config.trainer.get_max_iteration():
+    while not n_round >= config.trainer.get_max_iteration():
         time.sleep(5)
-        pbar.n = len(st["data"])
-        pbar.refresh()
 
         if len(last_data["incoming_gradient"]) >= config.bcfl.get_nodes():
             gradients = [i["gradient"] for i in last_data["incoming_gradient"]]
+            print("aggergate, {}".format(time.time()))
             agg_addr = aggregator.aggergate_run(gradients=gradients)
-
+            print("aggergate done, {}".format(time.time()))
             state_data = state(round_=last_data["round"] + 1,
                                agg_gradient=agg_addr,
                                base_result="")
@@ -185,14 +203,21 @@ if __name__ == "__main__":
         st = read_state(state_file)
         last_data = st["data"][-1]
         n_round = len(st["data"])
+        pbar.n = n_round
+        pbar.refresh()
     pbar.close()
 
+    time.sleep(10)
     open(os.path.join(models_tmp, "training_down"), "w").close()
     time.sleep(10)
 
     while not len(glob.glob(os.path.join(train_tmp, "models", "round_*.pt"))) >= config.trainer.get_max_iteration():
         time.sleep(3)
         print("wait for saving...")
+
+    while not len(glob.glob(os.path.join(train_tmp, "network", "convert_down"))) >= config.trainer.get_max_iteration():
+        time.sleep(3)
+        print("wait for convert...")
 
     time.sleep(3)
     print("Eval...")
@@ -202,7 +227,7 @@ if __name__ == "__main__":
 
     # move
     move(con_path, train_tmp)
-    move(train_tmp, out_path)
+    # move(train_tmp, out_path)
 
     # make sure close all process
     time.sleep(5)

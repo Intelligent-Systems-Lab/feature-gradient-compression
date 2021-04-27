@@ -9,6 +9,8 @@ import pandas as pd
 import random
 import numpy as np
 import sys, os, json
+import pickle
+from PIL import Image
 
 sys.setrecursionlimit(1000000)
 
@@ -51,7 +53,8 @@ def get_model(type_):
     elif type_ == "femnist":
         Model = Model_femnist
     elif type_ == "cifar10":
-        Model = ResNet18_cifar
+        Model = ResNet101_cifar
+        # Model = ResNet18_cifar
         # Model = Net
     return Model
 
@@ -110,26 +113,40 @@ def getdataloader(dset='./mnist_test.csv', batch=10):
     return trainloader
 
 
-def get_cifar_dataloader(root='./index.json', client=0, batch=10):
+class CIFARDataset(Dataset):
+    def __init__(self, root, transform=None, target_transform=None):
+        self.data = []
+        self.targets = []
+        self.transform = transform
+        self.target_transform = target_transform
+        with open(root, 'rb') as f:
+            entry = pickle.load(f, encoding='latin1')
+            self.data = entry['data']
+            self.targets = entry['labels']
+        self.data = np.vstack(self.data).reshape(-1, 3, 32, 32)
+        self.data = self.data.transpose((0, 2, 3, 1))  # convert to HWC
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        img, target = self.data[index], self.targets[index]
+        img = Image.fromarray(img)
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target
+
+
+def get_cifar_dataloader(root='./index.json', batch=10):
     print("Dataset at : {}".format(root))
-    with open(root, 'rb') as fo:
-        d = json.load(fo)
     transform = transforms.Compose([transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    if client == -1:
-        # test dataset
-        cifar_dataset = torchvision.datasets.CIFAR10(root=os.path.dirname(os.path.dirname(root)), train=False,
-                                                     download=False, transform=transform)
-        cifar_loader = torch.utils.data.DataLoader(cifar_dataset, batch_size=batch,
-                                                   num_workers=2)
-    else:
-        # train dataset
-        d = d[str(client)]
-        cifar_dataset = torchvision.datasets.CIFAR10(root=os.path.dirname(os.path.dirname(root)), train=True,
-                                                     download=False, transform=transform)
-        cifar_loader = torch.utils.data.DataLoader(cifar_dataset, batch_size=batch,
-                                                   sampler=SubsetRandomSampler(d),
-                                                   num_workers=2)
+    cifar_dataset = CIFARDataset(root=root, transform=transform)
+    cifar_loader = torch.utils.data.DataLoader(cifar_dataset, batch_size=batch, num_workers=2)
     return cifar_loader
 
 
@@ -219,6 +236,12 @@ class ResNet18_cifar(torchvision.models.resnet.ResNet):
     def __init__(self):
         super(ResNet18_cifar, self).__init__(block=torchvision.models.resnet.BasicBlock, layers=[2, 2, 2, 2],
                                              num_classes=10)
+
+
+class ResNet101_cifar(torchvision.models.resnet.ResNet):
+    def __init__(self):
+        super(ResNet101_cifar, self).__init__(block=torchvision.models.resnet.Bottleneck, layers=[3, 4, 23, 3],
+                                              num_classes=10)
 
 
 class Net(nn.Module):

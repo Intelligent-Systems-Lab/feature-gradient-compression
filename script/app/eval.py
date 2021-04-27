@@ -141,8 +141,8 @@ if __name__ == "__main__":
         #         dl = getdataloader("/mountdata/{}/single_test/{}_single_{}.csv".format(con.trainer.get_dataset_path(), con.trainer.get_dataset(), i), 10)
         #         single_test_dataloader.append(dl)
     elif config.trainer.get_dataset() == "cifar10":
-        path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "index.json")
-        test_dataloader = get_cifar_dataloader(root=path, client=-1, batch=10)
+        path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "cifar10_test.pkl")
+        test_dataloader = get_cifar_dataloader(root=path, batch=10)
 
     bcfl_models = []
     print("Generate acc report...")

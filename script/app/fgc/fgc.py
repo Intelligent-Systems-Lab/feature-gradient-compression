@@ -16,11 +16,12 @@ def normalize(value, device="cpu"):
     return new_value
 
 class FGCCompressor(Compressor):
-    def __init__(self, compress_ratio=0.5, fusing_ratio=0.8):
+    def __init__(self, compress_ratio=0.5, fusing_ratio=0.8, device=torch.device("cpu")):
         super().__init__(average=True, tensors_size_are_same=False)
         self.compress_ratio = compress_ratio
         self.fusing_ratio = fusing_ratio
         self.param_groups_c = None
+        self.device = device
 
     def clean(self):
         self.param_groups_c = None
@@ -44,7 +45,7 @@ class FGCCompressor(Compressor):
         compressed_grad = []
 
         for t in range(len(agg_gradient)):
-            tensor = agg_gradient[t].cpu()
+            tensor = agg_gradient[t].to(self.device)
 
             shape = list(tensor.size())
             tensor = tensor.flatten()
@@ -60,8 +61,8 @@ class FGCCompressor(Compressor):
             tensor_a = tensor_a[tensor_a > 0]
 
             if not len(tensor_a)==0:
-                tmin = min(tensor_a)
-                tmax = max(tensor_a)
+                tmin = torch.min(tensor_a)
+                tmax = torch.max(tensor_a)
             else:
                 compress = False
 
@@ -69,7 +70,7 @@ class FGCCompressor(Compressor):
                 if not len(tensor_a) == 0:
                     for i in range(10):
                         thr = (tmax + tmin) / 2
-                        mask = tensor.abs().cpu() >= thr.cpu()
+                        mask = tensor.abs().to(self.device) >= thr.to(self.device)
                         selected = mask.sum()
 
                         if selected > (tensor_a.numel() * min(self.compress_ratio + 0.05, 1)):
@@ -81,17 +82,17 @@ class FGCCompressor(Compressor):
                         break
                 else:
                     thr = 1  # becauce all element are 0, set thr=1 make mask mask out everything
-                    mask = tensor.abs().cpu() >= thr.cpu()
+                    mask = tensor.abs().to(self.device) >= thr.to(self.device)
                     selected = mask.sum()
             else:
-                mask = tensor.abs().cpu() > 0
+                mask = tensor.abs().to(self.device) > 0
                 #selected = mask.sum()
 
             indices, = torch.where(mask)
             values = tensor[indices]
 
-            tensor_compressed = values.tolist()  # , indices
-            ctx = shape, mask.tolist(), numel
+            tensor_compressed = values.cpu().tolist()  # , indices
+            ctx = shape, mask.cpu().tolist(), numel
             # tensor boolean is to big
 
             compressed_grad.append((tensor_compressed, ctx))

@@ -7,7 +7,7 @@ class Compressor(ABC):
         self.tensors_size_are_same = tensors_size_are_same
 
     @abstractmethod
-    def compress(self, tensor, name):
+    def compress(self, tensor, a):
         """Compresses a tensor and returns it with the context needed to decompress it."""
         raise NotImplemented("compress was not implemented.")
 
