@@ -110,6 +110,9 @@ class trainer:
                         lr=lr,
                         compress_ratio=self.compress_ratio,
                         fusing_ratio=self.fusing_ratio,
+                        weight_decay=1e-4,
+                        momentum=0.9,
+                        nesterov=True,
                         device=self.device)
         model.train().to(self.device)
 
@@ -173,6 +176,7 @@ class trainer:
         opt = get_optimizer(self.config.trainer.get_optimizer())
         optimizer = opt(params=model.parameters(),
                         lr=lr,
+                        weight_decay=1e-4,
                         device=self.device)
         # print("base_grad: {}".format(type(object_deserialize(self.dbHandler.cat(base_gradient)))))
         self.cg = optimizer.decompress(object_deserialize(self.dbHandler.cat(base_gradient)))
@@ -208,11 +212,11 @@ if __name__ == "__main__":
         dset = os.path.join(os.path.dirname(workspace), "data")
         dset = os.path.join(dset, config.trainer.get_dataset_path(),
                             "{}_train_{}.csv".format(config.trainer.get_dataset(), cid))
-        dloader = getdataloader(dset, batch=10)
+        dloader = getdataloader(dset, batch=config.trainer.get_local_bs())
     elif config.trainer.get_dataset() == "cifar10":
         path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(),
                             "cifar10_{}.pkl".format(cid))
-        dloader = get_cifar_dataloader(root=path, batch=10)
+        dloader = get_cifar_dataloader(root=path, batch=config.trainer.get_local_bs())
 
     t = trainer(config=config,
                 dataloader=dloader,
@@ -221,7 +225,7 @@ if __name__ == "__main__":
                 device=torch.device("cuda:{}".format(int(cid) % gpu_count)),
                 board_path=os.path.join(workspace, "tfboard"))
 
-    store_base_model = []
+    store_base_model = None
 
     state_file = os.path.join(workspace, "state.json")
 
@@ -230,8 +234,7 @@ if __name__ == "__main__":
         print("Wait for init... >> state.json")
         continue
 
-    while not (os.path.isfile(os.path.join(workspace, "models", "training_down")) and
-               len(store_base_model) >= config.trainer.get_max_iteration()):
+    while not (os.path.isfile(os.path.join(workspace, "models", "training_down"))):
         print("...")
         time.sleep(5)
         state = read_state(state_file)
@@ -248,28 +251,33 @@ if __name__ == "__main__":
         if last_state["round"] == 0:
             Model = get_model(config.trainer.get_dataset())
             model = base642fullmodel(dbHandler.cat(last_state["base_result"]))
-            store_base_model.append(copy.deepcopy(model))
+            store_base_model = copy.deepcopy(model)
         else:
             Model = get_model(config.trainer.get_dataset())
             new_model = t.opt_step_base_model(round_=last_state["round"] - 1,
-                                              base_model=store_base_model[-1],
+                                              base_model=store_base_model,
                                               base_gradient=last_state["agg_gradient"])
-            store_base_model.append(copy.deepcopy(new_model))
+            store_base_model = copy.deepcopy(new_model)
+
+        if (last_state["round"] % config.bcfl.get_nodes()) == int(cid):
+            save_path = os.path.join(workspace, "models", "round_{}.pt".format(last_state["round"]))
+            torch.save(store_base_model.state_dict(), save_path)
 
         if len(state["data"]) >= config.trainer.get_max_iteration():
             continue
 
-        addr = t.train_run(round_=last_state["round"], base_model=store_base_model[last_state["round"]])
+        addr = t.train_run(round_=last_state["round"], base_model=store_base_model)
         write_state(file=state_file, round_=last_state["round"], cid=cid, addr=addr)
 
-    print("Saving...")
-
-    for i in range(config.trainer.get_max_iteration()):
-        if (i % config.bcfl.get_nodes()) == int(cid):
-            save_path = os.path.join(workspace, "models", "round_{}.pt".format(i))
-            torch.save(store_base_model[i].state_dict(), save_path)
+    # print("Saving...")
+    #
+    # for i in range(config.trainer.get_max_iteration()):
+    #     if (i % config.bcfl.get_nodes()) == int(cid):
+    #         save_path = os.path.join(workspace, "models", "round_{}.pt".format(i))
+    #         torch.save(store_base_model[i].state_dict(), save_path)
 
     open(os.path.join(workspace, "models", "save_down"), "w").close()
 
     print("Exit.")
     exit()
+

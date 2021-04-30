@@ -9,6 +9,11 @@ install_python_dep:
 	@sleep 1
 	~/fgc/bin/pip3 install install -r requirements.txt
 
+install_tshark:
+	@echo "Install tshark..."
+	@sleep 1
+	sudo apt-get install tshark
+
 install_ipfs:
 	@echo "Install ipfs..."
 	@sleep 1

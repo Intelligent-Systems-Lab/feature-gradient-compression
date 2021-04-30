@@ -133,7 +133,7 @@ if __name__ == "__main__":
     if config.trainer.get_dataset() == "femnist":
         dset = os.path.join(os.path.dirname(workspace), "data")
         dset_ = os.path.join(dset, config.trainer.get_dataset_path(), "{}_test.csv".format(config.trainer.get_dataset()))
-        test_dataloader = getdataloader(dset_, batch=10)
+        test_dataloader = getdataloader(dset_, batch=config.trainer.get_local_bs())
 
         # single_test_dataloader = []
         # if con.trainer.get_dataset_path().split("/")[-1] == "niid":
@@ -142,7 +142,7 @@ if __name__ == "__main__":
         #         single_test_dataloader.append(dl)
     elif config.trainer.get_dataset() == "cifar10":
         path = os.path.join(os.path.dirname(workspace), "data", config.trainer.get_dataset_path(), "cifar10_test.pkl")
-        test_dataloader = get_cifar_dataloader(root=path, batch=10)
+        test_dataloader = get_cifar_dataloader(root=path, batch=config.trainer.get_local_bs())
 
     bcfl_models = []
     print("Generate acc report...")

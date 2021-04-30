@@ -11,4 +11,4 @@ echo
 #CONFIG=./script/app/config/config.ini
 #export workspace=./train_tmp
 
-python3 -u ./script/app/eval.py --config ${CONFIG}
+python3 -u ./script/app/eval2.py --config ${CONFIG}
